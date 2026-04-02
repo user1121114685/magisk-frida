@@ -22,6 +22,8 @@
 
 # Set to true if you do *NOT* want Magisk to mount
 # any files for you. This module runs Frida from its own bin directory.
+# KernelSU's new-style customize.sh does not automatically translate this
+# into a skip_mount marker, so the installer creates that marker explicitly.
 SKIPMOUNT=true
 
 # Set to true if you need to load system.prop
@@ -119,13 +121,9 @@ REPLACE="
 # Enable boot scripts by setting the flags in the config section above.
 ##########################################################################################
 
-[ ! -d $MODPATH/logs ] && mkdir -p $MODPATH/logs
+[ ! -d "$MODPATH/logs" ] && mkdir -p "$MODPATH/logs"
 
-# log
-exec 2> $MODPATH/logs/custom.log
-set -x
-
-PATH=$PATH:/data/adb/ap/bin:/data/adb/magisk:/data/adb/ksu/bin
+PATH="$PATH:/data/adb/ap/bin:/data/adb/magisk:/data/adb/ksu/bin"
 
 # keep Magisk's forced module installer backend involvement minimal (must end without ";")
 SKIPUNZIP=1
@@ -148,40 +146,46 @@ on_install() {
     arm)   F_ARCH=$ARCH;;
     x64)   F_ARCH=x86_64;;
     x86)   F_ARCH=$ARCH;;
-    *)     ui_print "Unsupported architecture: $ARCH"; abort;;
+    *)     abort "! Unsupported architecture: $ARCH";;
   esac
 
   ui_print "- Detected architecture: $F_ARCH"
 
-  if [ "$BOOTMODE" ] && [ "$KSU" ]; then
+  if [ "$BOOTMODE" = true ] && [ "$KSU" = true ]; then
       ui_print "- Installing from KernelSU"
       ui_print "- KernelSU version: $KSU_KERNEL_VER_CODE (kernel) + $KSU_VER_CODE (ksud)"
-  elif [ "$BOOTMODE" ] && [ "$APATCH" ]; then
+  elif [ "$BOOTMODE" = true ] && [ -n "$APATCH" ]; then
       ui_print "- Installing from APatch"
       ui_print "- APatch version: $APATCH_VER_CODE. Magisk version: $MAGISK_VER_CODE"
-  elif [ "$BOOTMODE" ] && [ "$MAGISK_VER_CODE" ]; then
+  elif [ "$BOOTMODE" = true ] && [ -n "$MAGISK_VER_CODE" ]; then
       ui_print "- Installing from Magisk"
       ui_print "- Magisk version: $MAGISK_VER_CODE ($MAGISK_VER)"
   else
     ui_print "*********************************************************"
     ui_print "! Install from recovery is not supported"
     ui_print "! Please install from KernelSU or Magisk app"
-    abort    "*********************************************************"
-fi
+    abort "*********************************************************"
+  fi
 
   ui_print "- Unzipping module files..."
-  busybox unzip -qq -o "$ZIPFILE" -x "META-INF/*" "files/*" -d "$MODPATH"
+  unzip -oq "$ZIPFILE" -x "META-INF/*" "files/*" -d "$MODPATH" \
+    || abort "! Failed to extract module files"
 
   # Clean up leftovers from previous installs that used the mount-based layout.
   rm -rf "$MODPATH/files" "$MODPATH/system/bin"
   rmdir "$MODPATH/system" 2>/dev/null
 
+  # KernelSU metainstall hooks look for this marker rather than SKIPMOUNT.
+  touch "$MODPATH/skip_mount" || abort "! Failed to create skip_mount marker"
+
   F_BINDIR="$MODPATH/bin"
-  mkdir -p "$F_BINDIR"
+  mkdir -p "$F_BINDIR" || abort "! Failed to create module bin directory"
 
   ui_print "- Installing Frida to module bin..."
-  busybox unzip -qq -o "$ZIPFILE" "files/frida-server-$F_ARCH" -j -d "$F_BINDIR"
-  mv -f "$F_BINDIR/frida-server-$F_ARCH" "$F_BINDIR/frida-server"
+  unzip -ojq "$ZIPFILE" "files/frida-server-$F_ARCH" -d "$F_BINDIR" \
+    || abort "! Failed to extract Frida binary"
+  mv -f "$F_BINDIR/frida-server-$F_ARCH" "$F_BINDIR/frida-server" \
+    || abort "! Failed to install Frida binary"
 }
 
 # Only some special files require specific permissions
@@ -190,19 +194,29 @@ fi
 
 set_permissions() {
   # The following is the default rule, DO NOT remove
-  set_perm_recursive $MODPATH 0 0 0755 0644
+  set_perm_recursive "$MODPATH" 0 0 0755 0644 \
+    || abort "! Failed to set default permissions"
 
   # Custom permissions
-  set_perm $MODPATH/bin/frida-server 0 2000 0755 u:object_r:system_file:s0
+  set_perm "$MODPATH/bin/frida-server" 0 2000 0755 u:object_r:system_file:s0 \
+    || abort "! Failed to set Frida binary permissions"
 }
+
+exec 3>&2 2>"$MODPATH/logs/custom.log"
+set -x
 
 print_modname
 on_install
 set_permissions
 
-[ -f $MODPATH/disable ] && {
+set +x
+exec 2>&3 3>&-
+
+[ -f "$MODPATH/disable" ] && {
   string="description=Run frida-server on boot: ❌ (failed)"
-  sed -i "s/^description=.*/$string/g" $MODPATH/module.prop
+  sed -i "s/^description=.*/$string/g" "$MODPATH/module.prop"
 }
+
+return 0
 
 #EOF
