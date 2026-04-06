@@ -128,6 +128,44 @@ PATH="$PATH:/data/adb/ap/bin:/data/adb/magisk:/data/adb/ksu/bin"
 # keep Magisk's forced module installer backend involvement minimal (must end without ";")
 SKIPUNZIP=1
 
+DEFAULT_FRIDA_PORT=47042
+FRIDA_LISTEN_HOST=127.0.0.1
+FRIDA_CONFIG_FILE="$MODPATH/frida.config"
+
+generate_random_suffix() {
+  suffix="$(tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8)"
+  if [ -z "$suffix" ]; then
+    suffix="$(printf '%08d' "$$")"
+  fi
+  printf '%s' "$suffix"
+}
+
+generate_frida_process_name() {
+  printf 'logd%s' "$(generate_random_suffix)"
+}
+
+read_existing_frida_port() {
+  if [ -f "$FRIDA_CONFIG_FILE" ]; then
+    port="$(sed -n 's/^FRIDA_PORT=//p' "$FRIDA_CONFIG_FILE" | head -n 1)"
+    case "$port" in
+      ''|*[!0-9]*)
+        ;;
+      *)
+        printf '%s' "$port"
+        return 0
+        ;;
+    esac
+  fi
+
+  printf '%s' "$DEFAULT_FRIDA_PORT"
+}
+
+write_frida_config() {
+  printf 'FRIDA_PROCESS_NAME=%s\nFRIDA_PORT=%s\nFRIDA_LISTEN_HOST=%s\n' \
+    "$FRIDA_PROCESS_NAME" "$FRIDA_PORT" "$FRIDA_LISTEN_HOST" > "$FRIDA_CONFIG_FILE" \
+    || abort "! Failed to write Frida config"
+}
+
 # Set what you want to display when installing your module
 print_modname() {
   ui_print " "
@@ -180,12 +218,19 @@ on_install() {
 
   F_BINDIR="$MODPATH/bin"
   mkdir -p "$F_BINDIR" || abort "! Failed to create module bin directory"
+  FRIDA_PROCESS_NAME="$(generate_frida_process_name)"
+  FRIDA_PORT="$(read_existing_frida_port)"
+
+  ui_print "- Generated Frida process name: $FRIDA_PROCESS_NAME"
+  ui_print "- Configured Frida port: $FRIDA_PORT"
 
   ui_print "- Installing Frida to module bin..."
+  rm -f "$F_BINDIR"/*
   unzip -ojq "$ZIPFILE" "files/frida-server-$F_ARCH" -d "$F_BINDIR" \
     || abort "! Failed to extract Frida binary"
-  mv -f "$F_BINDIR/frida-server-$F_ARCH" "$F_BINDIR/frida-server" \
+  mv -f "$F_BINDIR/frida-server-$F_ARCH" "$F_BINDIR/$FRIDA_PROCESS_NAME" \
     || abort "! Failed to install Frida binary"
+  write_frida_config
 }
 
 # Only some special files require specific permissions
@@ -198,7 +243,7 @@ set_permissions() {
     || abort "! Failed to set default permissions"
 
   # Custom permissions
-  set_perm "$MODPATH/bin/frida-server" 0 2000 0755 u:object_r:system_file:s0 \
+  set_perm "$MODPATH/bin/$FRIDA_PROCESS_NAME" 0 2000 0755 u:object_r:system_file:s0 \
     || abort "! Failed to set Frida binary permissions"
 }
 

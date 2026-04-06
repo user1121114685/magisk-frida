@@ -16,9 +16,9 @@ set -x
     exit 0
 }
 
-result="$(busybox pgrep 'frida-server')"
+result="$(find_frida_pids)"
 if [ -n "$result" ]; then
-    echo "[-] Stopping Frida-server..."
+    echo "[-] Stopping Frida-server process: $FRIDA_PROCESS_NAME..."
     busybox kill -9 $result
 else
     echo "[-] Starting Frida server..."
