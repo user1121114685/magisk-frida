@@ -9,6 +9,7 @@ import zipfile
 import concurrent.futures
 import json
 import re
+import subprocess
 
 import requests
 
@@ -24,6 +25,32 @@ formatter = logging.Formatter("%(threadName)s : %(message)s")
 syslog.setFormatter(formatter)
 logger.setLevel(logging.INFO)
 logger.addHandler(syslog)
+
+
+def get_project_repository() -> str:
+    repository = os.getenv("GITHUB_REPOSITORY")
+    if repository:
+        return repository
+
+    remote_url = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    patterns = [
+        r"^https://github\.com/(?P<repo>[^/]+/[^/]+?)(?:\.git)?$",
+        r"^git@github\.com:(?P<repo>[^/]+/[^/]+?)(?:\.git)?$",
+        r"^ssh://git@github\.com/(?P<repo>[^/]+/[^/]+?)(?:\.git)?$",
+    ]
+
+    for pattern in patterns:
+        match = re.match(pattern, remote_url)
+        if match:
+            return match.group("repo")
+
+    raise ValueError(f"Unsupported origin remote URL: {remote_url}")
 
 
 def download_file(url: str, path: Path):
@@ -60,27 +87,27 @@ def generate_version_code(project_tag: str) -> int:
     return int(version_code)
 
 
-def create_module_prop(path: Path, project_tag: str):
+def create_module_prop(path: Path, project_tag: str, repository: str):
     module_prop = f"""id=magisk-frida
 name=MagiskFrida
 version={project_tag}
 versionCode={generate_version_code(project_tag)}
 author=ViRb3 & enovella
-updateJson=https://github.com/ViRb3/magisk-frida/releases/latest/download/updater.json
+updateJson=https://github.com/{repository}/releases/latest/download/updater.json
 description=Run frida-server on boot"""
 
     with open(path.joinpath("module.prop"), "w", newline="\n") as f:
         f.write(module_prop)
 
 
-def create_module(project_tag: str):
+def create_module(project_tag: str, repository: str):
     logger.info("Creating module")
 
     if PATH_BUILD_TMP.exists():
         shutil.rmtree(PATH_BUILD_TMP)
 
     shutil.copytree(PATH_BASE_MODULE, PATH_BUILD_TMP)
-    create_module_prop(PATH_BUILD_TMP, project_tag)
+    create_module_prop(PATH_BUILD_TMP, project_tag, repository)
 
 
 def fill_module(arch: str, frida_tag: str, project_tag: str):
@@ -99,14 +126,14 @@ def fill_module(arch: str, frida_tag: str, project_tag: str):
     extract_file(frida_server_path, files_dir.joinpath(f"frida-server-{arch}"))
 
 
-def create_updater_json(project_tag: str):
+def create_updater_json(project_tag: str, repository: str):
     logger.info("Creating updater.json")
 
     updater = {
         "version": project_tag,
         "versionCode": generate_version_code(project_tag),
-        "zipUrl": f"https://github.com/ViRb3/magisk-frida/releases/download/{project_tag}/MagiskFrida-{project_tag}.zip",
-        "changelog": "https://raw.githubusercontent.com/ViRb3/magisk-frida/master/CHANGELOG.md",
+        "zipUrl": f"https://github.com/{repository}/releases/download/{project_tag}/MagiskFrida-{project_tag}.zip",
+        "changelog": f"https://raw.githubusercontent.com/{repository}/master/CHANGELOG.md",
     }
 
     with open(PATH_BUILD.joinpath("updater.json"), "w", newline="\n") as f:
@@ -132,10 +159,11 @@ def package_module(project_tag: str):
 
 
 def do_build(frida_tag: str, project_tag: str):
+    repository = get_project_repository()
     PATH_DOWNLOADS.mkdir(parents=True, exist_ok=True)
     PATH_BUILD.mkdir(parents=True, exist_ok=True)
 
-    create_module(project_tag)
+    create_module(project_tag, repository)
 
     archs = ["arm", "arm64", "x86", "x86_64"]
     executor = concurrent.futures.ProcessPoolExecutor()
@@ -147,6 +175,6 @@ def do_build(frida_tag: str, project_tag: str):
             raise future.exception()
 
     package_module(project_tag)
-    create_updater_json(project_tag)
+    create_updater_json(project_tag, repository)
 
     logger.info("Done")
