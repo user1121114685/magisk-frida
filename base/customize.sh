@@ -128,7 +128,6 @@ PATH="$PATH:/data/adb/ap/bin:/data/adb/magisk:/data/adb/ksu/bin"
 # keep Magisk's forced module installer backend involvement minimal (must end without ";")
 SKIPUNZIP=1
 
-DEFAULT_FRIDA_PORT=47042
 FRIDA_LISTEN_HOST=127.0.0.1
 FRIDA_CONFIG_FILE="$MODPATH/frida.config"
 
@@ -144,20 +143,15 @@ generate_frida_process_name() {
   printf 'logd%s' "$(generate_random_suffix)"
 }
 
-read_existing_frida_port() {
-  if [ -f "$FRIDA_CONFIG_FILE" ]; then
-    port="$(sed -n 's/^FRIDA_PORT=//p' "$FRIDA_CONFIG_FILE" | head -n 1)"
-    case "$port" in
-      ''|*[!0-9]*)
-        ;;
-      *)
-        printf '%s' "$port"
-        return 0
-        ;;
-    esac
-  fi
+generate_frida_port() {
+  random_value="$(od -An -N2 -tu2 /dev/urandom 2>/dev/null | tr -d '[:space:]')"
+  case "$random_value" in
+    ''|*[!0-9]*)
+      random_value="$$"
+      ;;
+  esac
 
-  printf '%s' "$DEFAULT_FRIDA_PORT"
+  printf '%s' "$((random_value % 45536 + 20000))"
 }
 
 write_frida_config() {
@@ -219,7 +213,7 @@ on_install() {
   F_BINDIR="$MODPATH/bin"
   mkdir -p "$F_BINDIR" || abort "! Failed to create module bin directory"
   FRIDA_PROCESS_NAME="$(generate_frida_process_name)"
-  FRIDA_PORT="$(read_existing_frida_port)"
+  FRIDA_PORT="$(generate_frida_port)"
 
   ui_print "- Generated Frida process name: $FRIDA_PROCESS_NAME"
   ui_print "- Configured Frida port: $FRIDA_PORT"

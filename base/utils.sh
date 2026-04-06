@@ -2,7 +2,7 @@
 MODPATH=${0%/*}
 FRIDA_CONFIG="$MODPATH/frida.config"
 FRIDA_PROCESS_NAME="frida-server"
-FRIDA_PORT="47042"
+FRIDA_PORT=""
 FRIDA_LISTEN_HOST="127.0.0.1"
 PATH="$MODPATH/bin:$PATH:/data/adb/ap/bin:/data/adb/magisk:/data/adb/ksu/bin"
 
@@ -84,10 +84,15 @@ start_frida_server() {
     string="description=Run frida-server on boot: ❌ (missing binary)"
     sed -i "s/^description=.*/$string/g" $MODPATH/module.prop
     return 1
-    fi
+  fi
 
-  echo "[-] Starting Frida-server as $FRIDA_PROCESS_NAME on $FRIDA_LISTEN_HOST:$FRIDA_PORT"
-  "$FRIDA_BIN" -D -l "$FRIDA_LISTEN_HOST:$FRIDA_PORT"
+  if [ -n "$FRIDA_PORT" ]; then
+    echo "[-] Starting Frida-server as $FRIDA_PROCESS_NAME on $FRIDA_LISTEN_HOST:$FRIDA_PORT"
+    "$FRIDA_BIN" -D -l "$FRIDA_LISTEN_HOST:$FRIDA_PORT"
+  else
+    echo "[-] Starting Frida-server as $FRIDA_PROCESS_NAME on default port"
+    "$FRIDA_BIN" -D
+  fi
 }
 
 wait_for_boot() {
