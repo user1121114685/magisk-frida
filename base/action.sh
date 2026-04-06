@@ -10,8 +10,7 @@ set -x
 
 [ -f $MODPATH/disable ] && {
     echo "[-] Frida-server is disable"
-    string="description=Run frida-server on boot: ❌ (failed)"
-    sed -i "s/^description=.*/$string/g" $MODPATH/module.prop
+    set_module_description "❌ (failed)"
     sleep 1
     exit 0
 }

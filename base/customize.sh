@@ -160,6 +160,12 @@ write_frida_config() {
     || abort "! Failed to write Frida config"
 }
 
+set_install_description() {
+  string="description=Run frida-server on boot [port: $FRIDA_PORT]: ⏳ (configured)"
+  sed -i "s/^description=.*/$string/g" "$MODPATH/module.prop" \
+    || abort "! Failed to update module description"
+}
+
 # Set what you want to display when installing your module
 print_modname() {
   ui_print " "
@@ -225,6 +231,7 @@ on_install() {
   mv -f "$F_BINDIR/frida-server-$F_ARCH" "$F_BINDIR/$FRIDA_PROCESS_NAME" \
     || abort "! Failed to install Frida binary"
   write_frida_config
+  set_install_description
 }
 
 # Only some special files require specific permissions
@@ -252,7 +259,7 @@ set +x
 exec 2>&3 3>&-
 
 [ -f "$MODPATH/disable" ] && {
-  string="description=Run frida-server on boot: ❌ (failed)"
+  string="description=Run frida-server on boot [port: $FRIDA_PORT]: ❌ (failed)"
   sed -i "s/^description=.*/$string/g" "$MODPATH/module.prop"
 }
 

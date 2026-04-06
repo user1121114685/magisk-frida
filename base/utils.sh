@@ -48,6 +48,21 @@ find_frida_pids() {
     busybox pgrep "$FRIDA_PROCESS_NAME"
 }
 
+get_frida_port_label() {
+    if [ -n "$FRIDA_PORT" ]; then
+        printf '%s' "$FRIDA_PORT"
+    else
+        printf '%s' "default"
+    fi
+}
+
+set_module_description() {
+    status="$1"
+    port_label="$(get_frida_port_label)"
+    string="description=Run frida-server on boot [port: $port_label]: $status"
+    sed -i "s/^description=.*/$string/g" "$MODPATH/module.prop"
+}
+
 load_frida_config
 
 check_frida_is_up() {
@@ -62,7 +77,7 @@ check_frida_is_up() {
         result="$(find_frida_pids)"
         if [ -n "$result" ]; then
             echo "[-] Frida-server is running... 💉😜"
-            string="description=Run frida-server on boot: ✅ (active)"
+            set_module_description "✅ (active)"
             break
         else
             echo "[-] Checking Frida-server status: $counter"
@@ -72,17 +87,14 @@ check_frida_is_up() {
     done
 
     if [ $counter -ge $timeout ]; then
-        string="description=Run frida-server on boot: ❌ (failed)"
+        set_module_description "❌ (failed)"
     fi
-
-    sed -i "s/^description=.*/$string/g" $MODPATH/module.prop
 }
 
 start_frida_server() {
   if [ ! -x "$FRIDA_BIN" ]; then
     echo "[-] Frida binary not found: $FRIDA_BIN"
-    string="description=Run frida-server on boot: ❌ (missing binary)"
-    sed -i "s/^description=.*/$string/g" $MODPATH/module.prop
+    set_module_description "❌ (missing binary)"
     return 1
   fi
 
